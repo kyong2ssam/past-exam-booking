@@ -55,7 +55,8 @@ export default function App() {
     const separator = GAS_WEB_APP_URL.includes('?') ? '&' : '?';
     const cacheBuster = `${GAS_WEB_APP_URL}${separator}t=${new Date().getTime()}`;
     
-    fetch(cacheBuster)
+    // 네트워크 안정성을 위해 redirect: 'follow' 옵션 추가
+    fetch(cacheBuster, { method: 'GET', redirect: 'follow' })
       .then(res => {
         if (!res.ok) throw new Error("Network response was not ok");
         return res.json();
@@ -79,10 +80,10 @@ export default function App() {
       });
   }, []);
 
-  // 초기 실행 및 3초마다 실시간 인원 업데이트
+  // 초기 실행 및 5초마다 실시간 인원 업데이트 (구글 서버 과부하 방지)
   useEffect(() => {
     fetchBookings();
-    const interval = setInterval(fetchBookings, 3000); 
+    const interval = setInterval(fetchBookings, 5000); 
     return () => clearInterval(interval);
   }, [fetchBookings]);
 
@@ -129,7 +130,8 @@ export default function App() {
       const response = await fetch(GAS_WEB_APP_URL, {
         method: 'POST',
         body: JSON.stringify(formData),
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        redirect: 'follow'
       });
       const result = await response.json();
       
