@@ -5,25 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>기출문제 열람 신청</title>
   
-  <!-- Tailwind CSS 로드 -->
   <script src="https://cdn.tailwindcss.com"></script>
   
-  <!-- React 로드 -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   
-  <!-- Babel 컴파일러 로드 (브라우저에서 React 코드 바로 실행) -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body class="bg-gray-50 min-h-screen font-sans">
-  <!-- React 앱이 표시될 빈 영역 -->
   <div id="root"></div>
 
-  <!-- React 앱 코드 -->
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    // --- 아이콘 컴포넌트 세팅 (단일 파일 배포를 위해 SVG로 직접 구현) ---
+    // --- 아이콘 컴포넌트 세팅 ---
     const BookOpen = () => (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 text-blue-600"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>);
     const UserIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 mr-2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>);
     const UsersIcon = ({className}) => (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>);
@@ -34,24 +29,28 @@
 
     // --- 환경 설정 및 데이터 ---
     const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyKKhUbAcnPNLhSK3y754LSCxO10uheHJkeYKctubBpCjKHDXaOIwDlCORlDCmxxeT_vQ/exec"; 
+    const MAX_LIMIT = 5;
     
     const DEPARTMENTS = ['건축디자인과', '제품디자인과', '패션디자인과', '시각디자인과', '도예디자인과'];
     const GRADES = ['1학년', '2학년', '3학년'];
     const CLASSES = ['1반', '2반'];
     const DATES = ['4월 20일', '4월 21일', '4월 22일'];
+    
+    // 요청하신 신규 시간대 목록
     const TIMES = [
       '08:50~09:00',
       '09:50~10:00',
       '10:50~11:00',
       '11:50~12:00',
-      '12:50~13:40',
+      '12:50~13:00',
+      '13:00~13:10',
+      '13:10~13:20',
+      '13:20~13:30',
+      '13:30~13:40',
+      '13:40', // 오후 1시 40분
       '14:30~14:40',
       '15:30~15:40'
     ];
-
-    const getMaxLimit = (time) => {
-      return time === '12:50~13:40' ? 30 : 10;
-    };
 
     // --- 메인 앱 컴포넌트 ---
     function App() {
@@ -71,14 +70,20 @@
       const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData((prev) => ({ ...prev, [name]: value }));
+        
+        // 날짜를 바꿨을 때, 기존에 선택된 시간이 새 날짜에서는 마감되었을 수 있으므로 시간 초기화
+        if (name === 'date') {
+          setFormData((prev) => ({ ...prev, time: '' }));
+        }
       };
 
       const currentSlotKey = `${formData.date}|${formData.time}`;
       const currentCount = bookingsCount[currentSlotKey] || 0;
-      const currentLimit = getMaxLimit(formData.time);
-      const isFull = formData.time ? currentCount >= currentLimit : false;
+      const remainingCount = MAX_LIMIT - currentCount;
+      const isFull = formData.time ? remainingCount <= 0 : false;
 
-      useEffect(() => {
+      // 데이터 불러오기 로직 (10초마다 갱신하여 실시간성 강화)
+      const fetchBookings = () => {
         if (GAS_WEB_APP_URL) {
           fetch(GAS_WEB_APP_URL)
             .then(res => res.json())
@@ -89,6 +94,12 @@
             })
             .catch(err => console.error("데이터 오류:", err));
         }
+      };
+
+      useEffect(() => {
+        fetchBookings();
+        const interval = setInterval(fetchBookings, 10000); // 10초 주기 업데이트
+        return () => clearInterval(interval);
       }, []);
 
       const handleSubmit = async (e) => {
@@ -145,7 +156,7 @@
               <h2 className="text-3xl font-extrabold text-gray-900">기출문제 열람 신청</h2>
               <div className="mt-3 text-sm text-gray-600 flex flex-col gap-1">
                 <p>원하시는 날짜와 시간대를 선택하여 신청해 주세요.</p>
-                <p>시간대별 선착순 10명 제한이 있습니다. <span className="font-medium text-blue-600">(점심시간은 선착순 30명 제한이 있습니다.)</span></p>
+                <p className="font-medium text-blue-600">모든 시간대는 선착순 5명 제한이 있습니다.</p>
               </div>
             </div>
 
@@ -207,20 +218,34 @@
                     </label>
                     <select name="time" required value={formData.time} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
                       <option value="" disabled>시간대를 선택하세요</option>
-                      {TIMES.map(time => <option key={time} value={time}>{time}</option>)}
+                      {TIMES.map(time => {
+                        // 날짜가 선택되었을 때만 잔여 인원 계산 (날짜가 없으면 기본 텍스트만 표시)
+                        const slotKey = `${formData.date}|${time}`;
+                        const count = bookingsCount[slotKey] || 0;
+                        const remain = MAX_LIMIT - count;
+                        const slotFull = remain <= 0;
+                        
+                        return (
+                          <option key={time} value={time} disabled={formData.date && slotFull}>
+                            {time} {formData.date ? (slotFull ? `(마감)` : `(잔여: ${remain}명)`) : ''}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
                 </div>
 
+                {/* 남은 인원 실시간 강조 표시 */}
                 {formData.date && formData.time && (
                   <div className={`p-4 rounded-lg flex items-center justify-between border ${isFull ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-100'}`}>
                     <div className="flex items-center">
                       <UsersIcon className={`w-5 h-5 mr-2 ${isFull ? 'text-red-500' : 'text-blue-600'}`} />
                       <span className={`font-medium ${isFull ? 'text-red-700' : 'text-blue-800'}`}>
-                        현재 신청 인원: <span className="text-lg">{currentCount}</span> / {currentLimit}명
+                        {isFull ? '해당 시간대는 신청이 마감되었습니다.' : (
+                          <>현재 <span className="font-extrabold text-lg text-blue-600">{remainingCount}명</span> 신청 가능합니다. (총 5명)</>
+                        )}
                       </span>
                     </div>
-                    {isFull && <span className="text-red-600 font-bold text-sm bg-red-100 px-2 py-1 rounded">마감됨</span>}
                   </div>
                 )}
 
