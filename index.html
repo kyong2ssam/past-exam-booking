@@ -4,7 +4,7 @@ import { BookOpen, User, Users, Calendar, Clock, CheckCircle, AlertCircle } from
 // =====================================================================
 // [설정] 구글 앱스 스크립트 웹 앱 URL
 // =====================================================================
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyeZWB_sntU7APWQ0R3EnREdhtfxhBgefnsqz3x9T974w1viOdRxegNNDFqk3vPg7qNIw/exec"; 
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwoIhdETEsXTJyX1nX31I0d2n1PThopCsaW2oPRr1Y1nE2e57DKBBwAwyT8ugGgElS0lQ/exec"; 
 
 const MAX_LIMIT = 5; // 모든 시간대 5명 제한
 
@@ -13,20 +13,24 @@ const GRADES = ['1학년', '2학년', '3학년'];
 const CLASSES = ['1반', '2반'];
 const DATES = ['4월 20일', '4월 21일', '4월 22일'];
 
-// 수정 요청하신 11개 시간대 목록
-const TIMES = [
-  '08:50~09:00',
-  '09:50~10:00',
-  '10:50~11:00',
-  '11:50~12:00',
-  '12:50~13:00',
-  '13:00~13:10',
-  '13:10~13:20',
-  '13:20~13:30',
-  '13:30~13:40',
-  '14:30~14:40',
-  '15:30~15:40'
-];
+// 날짜에 따른 시간대 반환 함수 (4월 20일 마지막 시간만 16:30으로 연장)
+const getTimesForDate = (date) => {
+  const baseTimes = [
+    '08:50~09:00', '09:50~10:00', '10:50~11:00', '11:50~12:00',
+    '12:50~13:00', '13:00~13:10', '13:10~13:20', '13:20~13:30',
+    '13:30~13:40', '14:30~14:40'
+  ];
+  if (date === '4월 20일') {
+    return [...baseTimes, '15:30~16:30'];
+  }
+  return [...baseTimes, '15:30~15:40'];
+};
+
+// 강력한 문자열 정제 함수
+const normalizeKey = (str) => {
+  if (!str) return '';
+  return String(str).replace(/['"\s\u200B]/g, '');
+};
 
 export default function App() {
   const [formData, setFormData] = useState({
@@ -42,12 +46,12 @@ export default function App() {
   const [status, setStatus] = useState('idle'); 
   const [message, setMessage] = useState('');
   const [fetchError, setFetchError] = useState(false); // Failed to fetch 에러 감지용 상태
+  const [isAgreed, setIsAgreed] = useState(false); // 저작권 동의 여부
 
-  // 데이터 불러오기 로직 (캐시 방지 및 에러 핸들링)
+  // 데이터 불러오기 로직 (캐시 방지 및 정제)
   const fetchBookings = useCallback(() => {
     if (!GAS_WEB_APP_URL) return;
     
-    // URL 뒤에 시간을 붙여 강제로 최신 데이터를 불러옴 (캐시 방지)
     const separator = GAS_WEB_APP_URL.includes('?') ? '&' : '?';
     const cacheBuster = `${GAS_WEB_APP_URL}${separator}t=${new Date().getTime()}`;
     
@@ -58,13 +62,20 @@ export default function App() {
       })
       .then(data => {
         if (data.success) {
-          setBookingsCount(data.counts);
-          setFetchError(false); // 통신 성공 시 에러 알림 해제
+          const safeCounts = {};
+          if (data.counts) {
+            Object.keys(data.counts).forEach(key => {
+              const cleanKey = normalizeKey(key);
+              safeCounts[cleanKey] = (safeCounts[cleanKey] || 0) + data.counts[key];
+            });
+          }
+          setBookingsCount(safeCounts);
+          setFetchError(false); 
         }
       })
       .catch(err => {
         console.error("데이터 갱신 실패:", err);
-        setFetchError(true); // 에러 발생 시 UI에 알림 표시
+        setFetchError(true); 
       });
   }, []);
 
@@ -86,13 +97,23 @@ export default function App() {
     }
   };
 
-  const currentSlotKey = `${formData.date}|${formData.time}`;
+  const currentSlotKey = normalizeKey(`${formData.date}|${formData.time}`);
   const currentCount = bookingsCount[currentSlotKey] || 0;
+  
+  // ★ 4월 20일 마지막 시간대는 정원 체크 예외 (제한 없음)
+  const isUnlimitedSlot = formData.date === '4월 20일' && formData.time === '15:30~16:30';
+  
   const remainingCount = MAX_LIMIT - currentCount;
-  const isFull = formData.time ? remainingCount <= 0 : false;
+  const isFull = formData.time ? (isUnlimitedSlot ? false : remainingCount <= 0) : false;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    if (!isAgreed) {
+      alert("저작권 보호 및 유출 금지 사항에 동의해야 신청할 수 있습니다.");
+      return;
+    }
+
     setStatus('submitting');
     setMessage('');
 
@@ -129,7 +150,7 @@ export default function App() {
   // --- 성공 화면 렌더링 ---
   if (status === 'success') {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
         <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 text-center border border-gray-100">
           <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-6 text-green-600">
             <CheckCircle className="w-10 h-10" />
@@ -149,24 +170,32 @@ export default function App() {
             처음으로 돌아가기
           </button>
         </div>
+        {/* 성공 화면 제작자 표시 */}
+        <div className="mt-8 text-sm text-gray-400 font-medium tracking-wide">
+          created by. 쿙쌤
+        </div>
       </div>
     );
   }
 
   // --- 기본 신청 폼 렌더링 ---
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
-      <div className="max-w-2xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 font-sans flex flex-col items-center">
+      <div className="max-w-2xl w-full mx-auto space-y-6 flex-grow">
         
-        {/* 헤더 */}
+        {/* 헤더 안내문 */}
         <div className="text-center">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 mb-4">
             <BookOpen className="w-8 h-8 text-blue-600" />
           </div>
           <h2 className="text-3xl font-extrabold text-gray-900">기출문제 열람 신청</h2>
-          <div className="mt-3 text-sm text-gray-600 space-y-1">
-            <p>원하시는 날짜와 시간대를 선택하여 신청해 주세요.</p>
-            <p className="font-bold text-blue-600">모든 시간대는 선착순 5명 제한이 있으며 실시간으로 반영됩니다.</p>
+          <div className="mt-4 text-sm text-gray-600 space-y-3">
+            <p className="text-base">원하시는 날짜와 시간대를 선택하여 신청해 주세요.</p>
+            <div className="inline-block text-left bg-blue-50 border border-blue-100 rounded-xl px-5 py-3 text-gray-700 space-y-1.5 w-full sm:w-auto">
+              <p><span className="font-bold mr-2">📍 열람 장소 :</span>본교무실</p>
+              <p><span className="font-bold mr-2">⏳ 입력 기한 :</span>~ 2026. 4. 22 14:00</p>
+              <p><span className="font-bold mr-2 text-blue-600">🔥 인원 제한 :</span><span className="text-blue-600 font-medium">시간대별 선착순 5명(4월 20일은 15:30~16:30 인원 제한 없음)</span></p>
+            </div>
           </div>
         </div>
 
@@ -241,13 +270,17 @@ export default function App() {
                 </label>
                 <select name="time" required value={formData.time} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
                   <option value="" disabled>시간대를 선택하세요</option>
-                  {TIMES.map(time => {
-                    const count = bookingsCount[`${formData.date}|${time}`] || 0;
+                  {getTimesForDate(formData.date).map(time => {
+                    const isUnlimited = formData.date === '4월 20일' && time === '15:30~16:30';
+                    const tempSlotKey = normalizeKey(`${formData.date}|${time}`);
+                    const count = bookingsCount[tempSlotKey] || 0;
                     const remain = MAX_LIMIT - count;
-                    const slotFull = remain <= 0;
+                    // 예외 시간대면 무조건 slotFull을 false 처리
+                    const slotFull = !isUnlimited && remain <= 0;
                     return (
                       <option key={time} value={time} disabled={formData.date && slotFull}>
-                        {time} {formData.date ? (slotFull ? `(마감)` : `(잔여: ${remain}명)`) : ''}
+                        {/* 특별한 "제한 없음" 문구 없이 시간만 표기하도록 수정 완료 */}
+                        {time}
                       </option>
                     );
                   })}
@@ -261,12 +294,33 @@ export default function App() {
                   <Users className={`w-5 h-5 mr-2 flex-shrink-0 ${isFull ? 'text-red-500' : 'text-blue-600'}`} />
                   <span className={`font-medium text-sm md:text-base ${isFull ? 'text-red-700' : 'text-blue-800'}`}>
                     {isFull ? '해당 시간대는 신청이 마감되었습니다.' : (
-                      <>현재 신청 가능 인원: <span className="text-lg font-bold">{remainingCount}</span> / {MAX_LIMIT}명</>
+                      isUnlimitedSlot 
+                        ? <>현재 신청 가능한 시간대입니다.</>
+                        : <>현재 신청 가능 인원: <span className="text-lg font-bold">{remainingCount}</span> / {MAX_LIMIT}명</>
                     )}
                   </span>
                 </div>
               </div>
             )}
+
+            {/* --- 저작권 동의 체크 영역 --- */}
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 mt-4">
+              <label className="flex items-start cursor-pointer">
+                <div className="flex-shrink-0 mt-1">
+                  <input
+                    type="checkbox"
+                    required
+                    checked={isAgreed}
+                    onChange={(e) => setIsAgreed(e.target.checked)}
+                    className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                  />
+                </div>
+                <div className="ml-3 text-sm text-gray-700 leading-relaxed">
+                  <span className="font-bold text-red-600 block mb-1">[필수] 저작권 보호 및 유출 금지 동의</span>
+                  학교에서 제공하는 기출문제는 저작권법의 보호를 받는 저작물로, 휴대폰 등을 이용한 사진 촬영, 동영상 녹화, 타이핑 기록 등을 일체 금지하며 온·오프라인에 문제를 게시하거나 타인에게 공유하는 행위를 금지합니다.
+                </div>
+              </label>
+            </div>
 
             {status === 'error' && !fetchError && (
               <div className="rounded-lg bg-red-50 p-4 border border-red-200 flex items-start">
@@ -275,20 +329,25 @@ export default function App() {
               </div>
             )}
 
-            <div className="pt-4">
+            <div className="pt-2">
               <button
                 type="submit"
-                disabled={status === 'submitting' || isFull || !formData.date || !formData.time || fetchError}
+                disabled={status === 'submitting' || isFull || !formData.date || !formData.time || !isAgreed || fetchError}
                 className={`w-full py-4 rounded-xl shadow-lg font-bold text-white transition-all
-                  ${(status === 'submitting' || isFull || !formData.date || !formData.time || fetchError) 
+                  ${(status === 'submitting' || isFull || !formData.date || !formData.time || !isAgreed || fetchError) 
                     ? 'bg-gray-400 cursor-not-allowed shadow-none' 
                     : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
                   }`}
               >
-                {status === 'submitting' ? '신청 처리 중...' : isFull ? '마감되었습니다' : '열람 신청하기'}
+                {status === 'submitting' ? '신청 처리 중...' : isFull ? '마감되었습니다' : '동의하고 열람 신청하기'}
               </button>
             </div>
           </form>
+        </div>
+        
+        {/* 만든 이 표시 */}
+        <div className="text-center pt-2 pb-8 text-sm text-gray-400 font-medium tracking-wide">
+          created by. 쿙쌤
         </div>
       </div>
     </div>
