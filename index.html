@@ -33,7 +33,7 @@
     // =====================================================================
     // [설정] 구글 앱스 스크립트 웹 앱 URL
     // =====================================================================
-    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyKKhUbAcnPNLhSK3y754LSCxO10uheHJkeYKctubBpCjKHDXaOIwDlCORlDCmxxeT_vQ/exec"; 
+    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbysKwSIvM4uAmpjAU5r8GCESuNu55NCFLHxUjCm0LjO8bxpV-g1B_Uue1aJuAMv0M3xPg/exec"; 
 
     const MAX_LIMIT = 5; // 모든 시간대 5명 제한
 
@@ -57,6 +57,12 @@
       '15:30~15:40'
     ];
 
+    // 강력한 문자열 정제 함수 (공백, 따옴표, 보이지 않는 특수기호 전부 무시)
+    const normalizeKey = (str) => {
+      if (!str) return '';
+      return String(str).replace(/['"\s\u200B]/g, '');
+    };
+
     function App() {
       const [formData, setFormData] = useState({
         department: '',
@@ -72,7 +78,7 @@
       const [message, setMessage] = useState('');
       const [fetchError, setFetchError] = useState(false);
 
-      // 데이터 불러오기 로직 (따옴표 및 공백 무시 강력 매칭 적용)
+      // 데이터 불러오기 로직 (완벽 매칭 적용)
       const fetchBookings = useCallback(() => {
         if (!GAS_WEB_APP_URL) return;
         
@@ -86,14 +92,15 @@
           })
           .then(data => {
             if (data.success) {
-              // ★ 핵심 수정: 서버에서 넘겨주는 키값에 따옴표(')가 묻어있어도 모두 지워버림
               const safeCounts = {};
               if (data.counts) {
+                // console.log("서버에서 받은 원본 데이터:", data.counts);
                 Object.keys(data.counts).forEach(key => {
-                  // 예: "'4월 20일|'08:50~09:00" -> "4월 20일|08:50~09:00" 로 완벽하게 정제
-                  const cleanKey = key.split('|').map(s => s.replace(/'/g, '').trim()).join('|');
+                  // 서버에서 받은 키값을 완전히 정제 (예: "' 4월 20일|08:50~09:00 " -> "4월20일|08:50~09:00")
+                  const cleanKey = normalizeKey(key);
                   safeCounts[cleanKey] = (safeCounts[cleanKey] || 0) + data.counts[key];
                 });
+                // console.log("앱에서 정제한 데이터:", safeCounts);
               }
               setBookingsCount(safeCounts);
               setFetchError(false);
@@ -123,7 +130,8 @@
         }
       };
 
-      const currentSlotKey = `${formData.date}|${formData.time}`;
+      // 화면에서 선택한 값도 완벽하게 정제해서 비교
+      const currentSlotKey = normalizeKey(`${formData.date}|${formData.time}`);
       const currentCount = bookingsCount[currentSlotKey] || 0;
       const remainingCount = MAX_LIMIT - currentCount;
       const isFull = formData.time ? remainingCount <= 0 : false;
@@ -279,7 +287,8 @@
                     <select name="time" required value={formData.time} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
                       <option value="" disabled>시간대를 선택하세요</option>
                       {TIMES.map(time => {
-                        const count = bookingsCount[`${formData.date}|${time}`] || 0;
+                        const tempSlotKey = normalizeKey(`${formData.date}|${time}`);
+                        const count = bookingsCount[tempSlotKey] || 0;
                         const remain = MAX_LIMIT - count;
                         const slotFull = remain <= 0;
                         return (
