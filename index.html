@@ -1,261 +1,133 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { BookOpen, User, Users, Calendar, Clock, CheckCircle, AlertCircle, Info } from 'lucide-react';
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>기출문제 열람 신청</title>
+  <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+  <script src="[https://unpkg.com/react@18/umd/react.production.min.js](https://unpkg.com/react@18/umd/react.production.min.js)" crossorigin></script>
+  <script src="[https://unpkg.com/react-dom@18/umd/react-dom.production.min.js](https://unpkg.com/react-dom@18/umd/react-dom.production.min.js)" crossorigin></script>
+  <script src="[https://unpkg.com/@babel/standalone/babel.min.js](https://unpkg.com/@babel/standalone/babel.min.js)"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
 
-// [설정] 배포된 구글 앱스 스크립트 웹 앱 URL을 입력하세요.
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxeDRfTPCxD3MKb2ZwPojNyWfh8TLIxb-SQhMp9nT8FlbmncAxk3NTRQeHOoMQ-HcCh7A/exec"; 
-
-const DEPARTMENTS = ['건축디자인과', '제품디자인과', '패션디자인과', '시각디자인과', '도예디자인과'];
-const GRADES = ['1학년', '2학년', '3학년'];
-const CLASSES = ['1반', '2반'];
-const DATES = ['4월 20일', '4월 21일', '4월 22일'];
-const TIMES = [
-  '08:50~09:00',
-  '09:50~10:00',
-  '10:50~11:00',
-  '11:50~12:00',
-  '12:50~13:00',
-  '13:00~13:10',
-  '13:10~13:20',
-  '13:20~13:30',
-  '13:30~13:40',
-  '14:30~14:40',
-  '15:30~15:40'
-];
-
-const MAX_LIMIT = 5;
-
-export default function App() {
-  const [formData, setFormData] = useState({
-    department: '',
-    grade: '',
-    studentClass: '',
-    name: '',
-    date: '',
-    time: ''
-  });
-
-  const [bookingsCount, setBookingsCount] = useState({});
-  const [status, setStatus] = useState('idle'); 
-  const [message, setMessage] = useState('');
-
-  // 데이터 불러오기 함수 (캐시 방지 로직 포함)
-  const fetchBookings = useCallback(() => {
-    if (!GAS_WEB_APP_URL) return;
+    // 배포된 구글 앱스 스크립트 주소
+    const GAS_WEB_APP_URL = "[https://script.google.com/macros/s/AKfycbyKKhUbAcnPNLhSK3y754LSCxO10uheHJkeYKctubBpCjKHDXaOIwDlCORlDCmxxeT_vQ/exec](https://script.google.com/macros/s/AKfycbyKKhUbAcnPNLhSK3y754LSCxO10uheHJkeYKctubBpCjKHDXaOIwDlCORlDCmxxeT_vQ/exec)"; 
     
-    // URL 뒤에 매번 다른 시간(timestamp)을 붙여 브라우저 캐시를 무력화합니다.
-    const urlWithCacheBuster = `${GAS_WEB_APP_URL}?t=${new Date().getTime()}`;
-    
-    fetch(urlWithCacheBuster)
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setBookingsCount(data.counts);
-        }
-      })
-      .catch(err => console.error("데이터 갱신 실패:", err));
-  }, []);
+    const MAX_LIMIT = 5;
+    const DATES = ['4월 20일', '4월 21일', '4월 22일'];
+    const TIMES = ['08:50~09:00','09:50~10:00','10:50~11:00','11:50~12:00','12:50~13:00','13:00~13:10','13:10~13:20','13:20~13:30','13:30~13:40','14:30~14:40','15:30~15:40'];
 
-  // 1. 초기 로드 및 5초 간격 실시간 업데이트 (Polling)
-  useEffect(() => {
-    fetchBookings();
-    const interval = setInterval(fetchBookings, 5000); 
-    return () => clearInterval(interval);
-  }, [fetchBookings]);
+    function App() {
+      const [formData, setFormData] = useState({ department: '', grade: '', studentClass: '', name: '', date: '', time: '' });
+      const [bookingsCount, setBookingsCount] = useState({});
+      const [status, setStatus] = useState('idle');
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    
-    // 날짜를 바꾸면 시간 선택을 초기화하고 즉시 최신 인원 파악
-    if (name === 'date') {
-      setFormData(prev => ({ ...prev, time: '' }));
-      fetchBookings();
-    }
-  };
+      const fetchBookings = () => {
+        // 주소 뒤에 시간을 붙여 강제로 최신 데이터를 불러옴 (캐시 방지)
+        const cacheBuster = GAS_WEB_APP_URL + "?t=" + new Date().getTime();
+        fetch(cacheBuster)
+          .then(res => res.json())
+          .then(data => { if (data.success) setBookingsCount(data.counts); })
+          .catch(err => console.error(err));
+      };
 
-  const currentSlotKey = `${formData.date}|${formData.time}`;
-  const currentCount = bookingsCount[currentSlotKey] || 0;
-  const isFull = formData.time ? currentCount >= MAX_LIMIT : false;
+      useEffect(() => {
+        fetchBookings();
+        const interval = setInterval(fetchBookings, 3000); // 3초마다 갱신
+        return () => clearInterval(interval);
+      }, []);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setStatus('submitting');
-    setMessage('');
+      const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+        if (name === 'date') setFormData(prev => ({ ...prev, time: '' }));
+        fetchBookings(); // 항목 변경 시 즉시 갱신
+      };
 
-    // 제출 전 한 번 더 최신 상태 확인
-    fetchBookings();
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setStatus('submitting');
+        try {
+          const res = await fetch(GAS_WEB_APP_URL, {
+            method: 'POST',
+            body: JSON.stringify(formData),
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+          });
+          const result = await res.json();
+          if (result.success) setStatus('success');
+          else { alert(result.message); fetchBookings(); setStatus('idle'); }
+        } catch (error) { setStatus('error'); alert('신청 중 오류가 발생했습니다.'); }
+      };
 
-    if (isFull) {
-      setStatus('error');
-      setMessage('선택하신 시간대는 방금 마감되었습니다. 다른 시간대를 선택해주세요.');
-      return;
-    }
-
-    try {
-      const response = await fetch(GAS_WEB_APP_URL, {
-        method: 'POST',
-        body: JSON.stringify(formData),
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }
-      });
-      const result = await response.json();
-      
-      if (result.success) {
-        setStatus('success');
-        setMessage('신청이 성공적으로 완료되었습니다. 신청 시간에 반드시 본교무실로 찾아와주세요.');
-      } else {
-        setStatus('error');
-        setMessage(result.message || '신청 중 오류가 발생했습니다.');
-        fetchBookings(); // 오류 시 최신 데이터 다시 가져오기
+      if (status === 'success') {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-4 text-center">
+            <div className="bg-white p-8 rounded-2xl shadow-xl max-w-sm w-full border border-gray-100">
+              <div className="text-green-500 text-6xl mb-4">✓</div>
+              <h2 className="text-2xl font-bold mb-2">신청이 완료되었습니다!</h2>
+              <p className="text-gray-600 mb-6 font-medium">신청 시간에 반드시<br/><span className="text-blue-600 font-bold">본교무실</span>로 찾아와주세요.</p>
+              <button onClick={() => window.location.reload()} className="w-full py-3 bg-blue-600 hover:bg-blue-700 transition-colors text-white rounded-lg font-bold">
+                처음으로
+              </button>
+            </div>
+          </div>
+        );
       }
-    } catch (error) {
-      setStatus('error');
-      setMessage('서버와의 통신에 실패했습니다.');
-    }
-  };
 
-  // 신청 완료 화면 (성공 시 전환)
-  if (status === 'success') {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white shadow-2xl rounded-3xl p-8 text-center border border-gray-100">
-          <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-green-100 mb-6 text-green-600">
-            <CheckCircle className="w-12 h-12" />
+      return (
+        <div className="p-4 max-w-2xl mx-auto py-10">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-extrabold text-gray-900">기출문제 열람 신청</h1>
+            <p className="text-blue-600 font-bold mt-2 text-sm">모든 시간대는 선착순 5명 제한 / 실시간 반영 중</p>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">신청 완료!</h2>
-          <div className="bg-blue-50 rounded-2xl p-4 mb-6">
-            <p className="text-blue-800 font-bold text-lg">{formData.date} {formData.time}</p>
-          </div>
-          <p className="text-gray-600 mb-8 font-medium leading-relaxed text-lg">
-            신청 시간에 반드시<br />
-            <span className="text-blue-600 font-extrabold text-xl">본교무실</span>로 찾아와주세요.
-          </p>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold text-lg hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200"
-          >
-            확인
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
-      <div className="max-w-2xl mx-auto space-y-8">
-        
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 mb-4">
-            <BookOpen className="w-8 h-8 text-blue-600" />
-          </div>
-          <h2 className="text-3xl font-extrabold text-gray-900">기출문제 열람 신청</h2>
-          <div className="mt-3 text-sm text-gray-600 space-y-1">
-            <p>원하시는 날짜와 시간대를 선택하여 신청해 주세요.</p>
-            <p className="font-bold text-blue-600">모든 시간대는 선착순 5명 제한이 있으며 실시간으로 반영됩니다.</p>
-          </div>
-        </div>
-
-        <div className="bg-white shadow-xl rounded-2xl overflow-hidden border border-gray-100">
-          <div className="bg-blue-600 px-6 py-4 flex items-center">
-            <User className="w-5 h-5 mr-2 text-white" />
-            <h3 className="text-lg font-medium text-white">신청자 정보 입력</h3>
-          </div>
-          
-          <form onSubmit={handleSubmit} className="p-6 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">학과</label>
-                <select name="department" required value={formData.department} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
+          <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <select name="department" required value={formData.department} onChange={handleChange} className="p-3 border border-gray-300 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500">
                   <option value="" disabled>학과 선택</option>
-                  {DEPARTMENTS.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+                  {['건축디자인과', '제품디자인과', '패션디자인과', '시각디자인과', '도예디자인과'].map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">학년</label>
-                <select name="grade" required value={formData.grade} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
+                <select name="grade" required value={formData.grade} onChange={handleChange} className="p-3 border border-gray-300 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500">
                   <option value="" disabled>학년 선택</option>
-                  {GRADES.map(grade => <option key={grade} value={grade}>{grade}</option>)}
+                  {['1학년', '2학년', '3학년'].map(g => <option key={g} value={g}>{g}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">반</label>
-                <select name="studentClass" required value={formData.studentClass} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
+                <select name="studentClass" required value={formData.studentClass} onChange={handleChange} className="p-3 border border-gray-300 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500">
                   <option value="" disabled>반 선택</option>
-                  {CLASSES.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+                  {['1반', '2반'].map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">이름</label>
-              <input type="text" name="name" required placeholder="홍길동" value={formData.name} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500" />
-            </div>
-
-            <hr className="border-gray-200" />
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
-                  <Calendar className="w-4 h-4 mr-1 text-gray-500" /> 열람 날짜
-                </label>
-                <select name="date" required value={formData.date} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
-                  <option value="" disabled>날짜 선택</option>
-                  {DATES.map(date => <option key={date} value={date}>{date}</option>)}
+              <input type="text" name="name" required placeholder="이름" value={formData.name} onChange={handleChange} className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500" />
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-200">
+                <select name="date" required value={formData.date} onChange={handleChange} className="p-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500">
+                  <option value="" disabled>날짜 선택</option>{DATES.map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
-                  <Clock className="w-4 h-4 mr-1 text-gray-500" /> 열람 시간대
-                </label>
-                <select name="time" required value={formData.time} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
-                  <option value="" disabled>시간대 선택</option>
-                  {TIMES.map(time => {
-                    const count = bookingsCount[`${formData.date}|${time}`] || 0;
+                <select name="time" required value={formData.time} onChange={handleChange} className="p-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500">
+                  <option value="" disabled>시간 선택</option>
+                  {TIMES.map(t => {
+                    const count = bookingsCount[`${formData.date}|${t}`] || 0;
+                    const remain = MAX_LIMIT - count;
                     return (
-                      <option key={time} value={time} disabled={formData.date && count >= MAX_LIMIT}>
-                        {time} {formData.date ? `(잔여: ${MAX_LIMIT - count}명)` : ''}
+                      <option key={t} value={t} disabled={formData.date && remain <= 0}>
+                        {t} {formData.date ? (remain <= 0 ? `(마감)` : `(잔여: ${remain}명)`) : ''}
                       </option>
                     );
                   })}
                 </select>
               </div>
-            </div>
-
-            {formData.date && formData.time && (
-              <div className={`p-4 rounded-xl flex items-center justify-between border ${isFull ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-100'}`}>
-                <div className="flex items-center">
-                  <Users className={`w-5 h-5 mr-2 ${isFull ? 'text-red-500' : 'text-blue-600'}`} />
-                  <span className={`font-medium ${isFull ? 'text-red-700' : 'text-blue-800'}`}>
-                    현재 신청 가능 인원: <span className="text-lg font-bold">{MAX_LIMIT - currentCount}</span> / {MAX_LIMIT}명
-                  </span>
-                </div>
-                {isFull && <span className="text-red-600 font-bold text-sm bg-red-100 px-2 py-1 rounded">마감</span>}
-              </div>
-            )}
-
-            {status === 'error' && (
-              <div className="rounded-lg bg-red-50 p-4 border border-red-200 flex items-start">
-                <AlertCircle className="w-5 h-5 text-red-400 mr-3 mt-0.5" />
-                <p className="text-sm text-red-800 font-medium">{message}</p>
-              </div>
-            )}
-
-            <div className="pt-4">
-              <button
-                type="submit"
-                disabled={status === 'submitting' || isFull || !formData.date || !formData.time}
-                className={`w-full py-4 rounded-xl shadow-lg font-bold text-white transition-all
-                  ${(status === 'submitting' || isFull || !formData.date || !formData.time) 
-                    ? 'bg-gray-400 cursor-not-allowed shadow-none' 
-                    : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
-                  }`}
-              >
-                {status === 'submitting' ? '신청 처리 중...' : isFull ? '선택하신 시간은 마감되었습니다' : '열람 신청하기'}
+              <button type="submit" disabled={status === 'submitting' || !formData.date || !formData.time || (bookingsCount[`${formData.date}|${formData.time}`] || 0) >= MAX_LIMIT} className="w-full py-4 bg-blue-600 hover:bg-blue-700 transition-colors text-white rounded-lg font-bold disabled:bg-gray-300 disabled:cursor-not-allowed">
+                {status === 'submitting' ? '처리 중...' : '열람 신청하기'}
               </button>
-            </div>
-          </form>
+            </form>
+          </div>
         </div>
-      </div>
-    </div>
-  );
-}
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
