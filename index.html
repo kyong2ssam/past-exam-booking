@@ -293,7 +293,7 @@
                         const slotFull = remain <= 0;
                         return (
                           <option key={time} value={time} disabled={formData.date && slotFull}>
-                            {time} {formData.date ? (slotFull ? `(마감)` : `(잔여: ${remain}명)`) : ''}
+                            {time}
                           </option>
                         );
                       })}
