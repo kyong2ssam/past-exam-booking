@@ -174,7 +174,7 @@
       // --- 성공 화면 렌더링 ---
       if (status === 'success') {
         return (
-          <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+          <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
             <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 text-center border border-gray-100">
               <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-6 text-green-600">
                 <CheckCircle className="w-10 h-10" />
@@ -194,6 +194,11 @@
                 처음으로 돌아가기
               </button>
             </div>
+            
+            {/* 성공 화면 제작자 표시 */}
+            <div className="mt-8 text-sm text-gray-400 font-medium">
+              created by. 쿙쌤
+            </div>
           </div>
         );
       }
@@ -209,9 +214,13 @@
                 <BookOpen className="w-8 h-8 text-blue-600" />
               </div>
               <h2 className="text-3xl font-extrabold text-gray-900">기출문제 열람 신청</h2>
-              <div className="mt-3 text-sm text-gray-600 space-y-1">
-                <p>원하시는 날짜와 시간대를 선택하여 신청해 주세요.</p>
-                <p className="font-bold text-blue-600">모든 시간대는 선착순 5명 제한이 있으며 실시간으로 반영됩니다.</p>
+              <div className="mt-4 text-sm text-gray-600 space-y-3">
+                <p className="text-base">원하시는 날짜와 시간대를 선택하여 신청해 주세요.</p>
+                <div className="inline-block text-left bg-blue-50 border border-blue-100 rounded-xl px-5 py-3 text-gray-700 space-y-1.5 w-full sm:w-auto">
+                  <p><span className="font-bold mr-2">📍 열람 장소 :</span>본교무실</p>
+                  <p><span className="font-bold mr-2">⏳ 입력 기한 :</span>~ 2026. 4. 17.</p>
+                  <p><span className="font-bold mr-2 text-blue-600">🔥 인원 제한 :</span><span className="text-blue-600 font-medium">시간대별 선착순 5명 (실시간)</span></p>
+                </div>
               </div>
             </div>
 
@@ -335,6 +344,11 @@
                   </button>
                 </div>
               </form>
+            </div>
+
+            {/* 기본 폼 제작자 표시 */}
+            <div className="text-center pt-2 pb-8 text-sm text-gray-400 font-medium">
+              created by. 쿙쌤
             </div>
           </div>
         </div>
