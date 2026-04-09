@@ -1,357 +1,391 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { BookOpen, User, Users, Calendar, Clock, CheckCircle, AlertCircle } from 'lucide-react';
-
-// =====================================================================
-// [설정] 구글 앱스 스크립트 웹 앱 URL
-// =====================================================================
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwoIhdETEsXTJyX1nX31I0d2n1PThopCsaW2oPRr1Y1nE2e57DKBBwAwyT8ugGgElS0lQ/exec"; 
-
-const MAX_LIMIT = 5; // 모든 시간대 5명 제한
-
-const DEPARTMENTS = ['건축디자인과', '제품디자인과', '패션디자인과', '시각디자인과', '도예디자인과'];
-const GRADES = ['1학년', '2학년', '3학년'];
-const CLASSES = ['1반', '2반'];
-const DATES = ['4월 20일', '4월 21일', '4월 22일'];
-
-// 날짜에 따른 시간대 반환 함수 (4월 20일 마지막 시간만 16:30으로 연장)
-const getTimesForDate = (date) => {
-  const baseTimes = [
-    '08:50~09:00', '09:50~10:00', '10:50~11:00', '11:50~12:00',
-    '12:50~13:00', '13:00~13:10', '13:10~13:20', '13:20~13:30',
-    '13:30~13:40', '14:30~14:40'
-  ];
-  if (date === '4월 20일') {
-    return [...baseTimes, '15:30~16:30'];
-  }
-  return [...baseTimes, '15:30~15:40'];
-};
-
-// 강력한 문자열 정제 함수
-const normalizeKey = (str) => {
-  if (!str) return '';
-  return String(str).replace(/['"\s\u200B]/g, '');
-};
-
-export default function App() {
-  const [formData, setFormData] = useState({
-    department: '',
-    grade: '',
-    studentClass: '',
-    name: '',
-    date: '',
-    time: ''
-  });
-
-  const [bookingsCount, setBookingsCount] = useState({});
-  const [status, setStatus] = useState('idle'); 
-  const [message, setMessage] = useState('');
-  const [fetchError, setFetchError] = useState(false); // Failed to fetch 에러 감지용 상태
-  const [isAgreed, setIsAgreed] = useState(false); // 저작권 동의 여부
-
-  // 데이터 불러오기 로직 (캐시 방지 및 정제)
-  const fetchBookings = useCallback(() => {
-    if (!GAS_WEB_APP_URL) return;
-    
-    const separator = GAS_WEB_APP_URL.includes('?') ? '&' : '?';
-    const cacheBuster = `${GAS_WEB_APP_URL}${separator}t=${new Date().getTime()}`;
-    
-    // 네트워크 안정성을 위해 redirect: 'follow' 옵션 추가
-    fetch(cacheBuster, { method: 'GET', redirect: 'follow' })
-      .then(res => {
-        if (!res.ok) throw new Error("Network response was not ok");
-        return res.json();
-      })
-      .then(data => {
-        if (data.success) {
-          const safeCounts = {};
-          if (data.counts) {
-            Object.keys(data.counts).forEach(key => {
-              const cleanKey = normalizeKey(key);
-              safeCounts[cleanKey] = (safeCounts[cleanKey] || 0) + data.counts[key];
-            });
-          }
-          setBookingsCount(safeCounts);
-          setFetchError(false); 
-        }
-      })
-      .catch(err => {
-        console.error("데이터 갱신 실패:", err);
-        setFetchError(true); 
-      });
-  }, []);
-
-  // 초기 실행 및 5초마다 실시간 인원 업데이트 (구글 서버 과부하 방지)
-  useEffect(() => {
-    fetchBookings();
-    const interval = setInterval(fetchBookings, 5000); 
-    return () => clearInterval(interval);
-  }, [fetchBookings]);
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    
-    // 날짜를 바꿨을 때 시간 초기화 및 즉시 갱신
-    if (name === 'date') {
-      setFormData(prev => ({ ...prev, time: '' }));
-      fetchBookings();
-    }
-  };
-
-  const currentSlotKey = normalizeKey(`${formData.date}|${formData.time}`);
-  const currentCount = bookingsCount[currentSlotKey] || 0;
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>기출문제 열람 신청</title>
   
-  // ★ 4월 20일 마지막 시간대는 정원 체크 예외 (제한 없음)
-  const isUnlimitedSlot = formData.date === '4월 20일' && formData.time === '15:30~16:30';
+  <!-- Tailwind CSS 로드 -->
+  <script src="https://cdn.tailwindcss.com"></script>
   
-  const remainingCount = MAX_LIMIT - currentCount;
-  const isFull = formData.time ? (isUnlimitedSlot ? false : remainingCount <= 0) : false;
+  <!-- React 로드 -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  
+  <!-- Babel 컴파일러 로드 -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans">
+  <div id="root"></div>
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!isAgreed) {
-      alert("저작권 보호 및 유출 금지 사항에 동의해야 신청할 수 있습니다.");
-      return;
-    }
+  <script type="text/babel">
+    const { useState, useEffect, useCallback } = React;
 
-    setStatus('submitting');
-    setMessage('');
+    // --- 아이콘 컴포넌트 세팅 ---
+    const BookOpen = ({className}) => (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>);
+    const User = ({className}) => (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>);
+    const Users = ({className}) => (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>);
+    const Calendar = ({className}) => (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="18" height="18" x="3" y="4" rx="2" ry="2"></rect><line x1="16" x2="16" y1="2" y2="6"></line><line x1="8" x2="8" y1="2" y2="6"></line><line x1="3" x2="21" y1="10" y2="10"></line></svg>);
+    const Clock = ({className}) => (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>);
+    const CheckCircle = ({className}) => (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>);
+    const AlertCircle = ({className}) => (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"></circle><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>);
 
-    fetchBookings(); // 제출 직전에 최신 상태 재확인
+    // =====================================================================
+    // [설정] 구글 앱스 스크립트 웹 앱 URL
+    // =====================================================================
+    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyKKhUbAcnPNLhSK3y754LSCxO10uheHJkeYKctubBpCjKHDXaOIwDlCORlDCmxxeT_vQ/exec"; 
 
-    if (isFull) {
-      setStatus('error');
-      setMessage('선택하신 시간대는 방금 마감되었습니다. 다른 시간대를 선택해주세요.');
-      return;
-    }
+    const MAX_LIMIT = 5; 
 
-    try {
-      const response = await fetch(GAS_WEB_APP_URL, {
-        method: 'POST',
-        body: JSON.stringify(formData),
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        redirect: 'follow'
-      });
-      const result = await response.json();
-      
-      if (result.success) {
-        setStatus('success'); // 성공 시 완료 화면으로 전환
-      } else {
-        setStatus('error');
-        setMessage(result.message || '신청 중 오류가 발생했습니다.');
-        fetchBookings(); 
+    const DEPARTMENTS = ['건축디자인과', '제품디자인과', '패션디자인과', '시각디자인과', '도예디자인과'];
+    const GRADES = ['1학년', '2학년', '3학년'];
+    const CLASSES = ['1반', '2반'];
+    const DATES = ['4월 20일', '4월 21일', '4월 22일'];
+
+    // 날짜에 따른 시간대 반환 함수 (4월 20일 마지막 시간만 16:30으로 연장)
+    const getTimesForDate = (date) => {
+      const baseTimes = [
+        '08:50~09:00', '09:50~10:00', '10:50~11:00', '11:50~12:00',
+        '12:50~13:00', '13:00~13:10', '13:10~13:20', '13:20~13:30',
+        '13:30~13:40', '14:30~14:40'
+      ];
+      if (date === '4월 20일') {
+        return [...baseTimes, '15:30~16:30'];
       }
-    } catch (error) {
-      setStatus('error');
-      setMessage('서버와의 통신에 실패했습니다. (CORS 권한 오류 등)');
-      setFetchError(true);
-    }
-  };
+      return [...baseTimes, '15:30~15:40'];
+    };
 
-  // --- 성공 화면 렌더링 ---
-  if (status === 'success') {
-    return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 text-center border border-gray-100">
-          <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-6 text-green-600">
-            <CheckCircle className="w-10 h-10" />
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">신청이 완료되었습니다!</h2>
-          <div className="bg-blue-50 rounded-lg p-4 mb-6">
-            <p className="text-blue-800 font-bold text-lg">{formData.date} {formData.time}</p>
-          </div>
-          <p className="text-gray-600 mb-8 font-medium text-lg leading-relaxed">
-            신청 시간에 반드시<br />
-            <span className="text-blue-600 font-extrabold text-xl">본교무실</span>로 찾아와주세요.
-          </p>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="w-full py-4 bg-blue-600 hover:bg-blue-700 transition-colors text-white rounded-lg font-bold shadow-md"
-          >
-            처음으로 돌아가기
-          </button>
-        </div>
-        {/* 성공 화면 제작자 표시 */}
-        <div className="mt-8 text-sm text-gray-400 font-medium tracking-wide">
-          created by. 쿙쌤
-        </div>
-      </div>
-    );
-  }
+    // 강력한 문자열 정제 함수
+    const normalizeKey = (str) => {
+      if (!str) return '';
+      return String(str).replace(/['"\s\u200B]/g, '');
+    };
 
-  // --- 기본 신청 폼 렌더링 ---
-  return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 font-sans flex flex-col items-center">
-      <div className="max-w-2xl w-full mx-auto space-y-6 flex-grow">
+    function App() {
+      const [formData, setFormData] = useState({
+        department: '',
+        grade: '',
+        studentClass: '',
+        name: '',
+        date: '',
+        time: ''
+      });
+
+      const [bookingsCount, setBookingsCount] = useState({});
+      const [status, setStatus] = useState('idle'); 
+      const [message, setMessage] = useState('');
+      const [fetchError, setFetchError] = useState(false);
+      const [isAgreed, setIsAgreed] = useState(false); 
+
+      // 데이터 불러오기 로직 (캐시 방지 및 정제)
+      const fetchBookings = useCallback(() => {
+        if (!GAS_WEB_APP_URL) return;
         
-        {/* 헤더 안내문 */}
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 mb-4">
-            <BookOpen className="w-8 h-8 text-blue-600" />
-          </div>
-          <h2 className="text-3xl font-extrabold text-gray-900">기출문제 열람 신청</h2>
-          <div className="mt-4 text-sm text-gray-600 space-y-3">
-            <p className="text-base">원하시는 날짜와 시간대를 선택하여 신청해 주세요.</p>
-            <div className="inline-block text-left bg-blue-50 border border-blue-100 rounded-xl px-5 py-3 text-gray-700 space-y-1.5 w-full sm:w-auto">
-              <p><span className="font-bold mr-2">📍 열람 장소 :</span>본교무실</p>
-              <p><span className="font-bold mr-2">⏳ 입력 기한 :</span>~ 2026. 4. 22 14:00</p>
-              <p><span className="font-bold mr-2 text-blue-600">🔥 인원 제한 :</span><span className="text-blue-600 font-medium">시간대별 선착순 5명(4월 20일은 15:30~16:30 인원 제한 없음)</span></p>
-            </div>
-          </div>
-        </div>
+        const separator = GAS_WEB_APP_URL.includes('?') ? '&' : '?';
+        const cacheBuster = `${GAS_WEB_APP_URL}${separator}t=${new Date().getTime()}`;
+        
+        // 네트워크 안정성을 위해 redirect: 'follow' 옵션 추가
+        fetch(cacheBuster, { method: 'GET', redirect: 'follow' })
+          .then(res => {
+            if (!res.ok) throw new Error("Network response was not ok");
+            return res.json();
+          })
+          .then(data => {
+            if (data.success) {
+              const safeCounts = {};
+              if (data.counts) {
+                Object.keys(data.counts).forEach(key => {
+                  const cleanKey = normalizeKey(key);
+                  safeCounts[cleanKey] = (safeCounts[cleanKey] || 0) + data.counts[key];
+                });
+              }
+              setBookingsCount(safeCounts);
+              setFetchError(false); 
+            }
+          })
+          .catch(err => {
+            console.error("데이터 갱신 실패:", err);
+            setFetchError(true); 
+          });
+      }, []);
 
-        {/* Failed to fetch 에러 알림 배너 */}
-        {fetchError && (
-          <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm">
-            <div className="flex items-start">
-              <AlertCircle className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" />
-              <div>
-                <h3 className="text-sm font-bold text-red-800">서버 연결 오류 (Failed to fetch)</h3>
-                <p className="mt-1 text-sm text-red-700">
-                  구글 서버에 접근할 수 없습니다. 스프레드시트 배포 설정에서<br />
-                  접근 권한이 <strong>"모든 사용자(Anyone)"</strong>로 되어 있는지 확인 후 새 버전으로 재배포해주세요.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
+      // 초기 실행 및 5초마다 실시간 인원 업데이트
+      useEffect(() => {
+        fetchBookings();
+        const interval = setInterval(fetchBookings, 5000); 
+        return () => clearInterval(interval);
+      }, [fetchBookings]);
 
-        {/* 폼 카드 */}
-        <div className="bg-white shadow-xl rounded-2xl overflow-hidden border border-gray-100">
-          <div className="bg-blue-600 px-6 py-4 flex items-center">
-            <User className="w-5 h-5 mr-2 text-white" />
-            <h3 className="text-lg font-medium text-white">신청자 정보 입력</h3>
-          </div>
+      const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData((prev) => ({ ...prev, [name]: value }));
+        
+        // 날짜를 바꿨을 때 시간 초기화 및 즉시 갱신
+        if (name === 'date') {
+          setFormData(prev => ({ ...prev, time: '' }));
+          fetchBookings();
+        }
+      };
+
+      const currentSlotKey = normalizeKey(`${formData.date}|${formData.time}`);
+      const currentCount = bookingsCount[currentSlotKey] || 0;
+      
+      // ★ 4월 20일 마지막 시간대는 정원 체크 예외 (제한 없음)
+      const isUnlimitedSlot = formData.date === '4월 20일' && formData.time === '15:30~16:30';
+      
+      const remainingCount = MAX_LIMIT - currentCount;
+      const isFull = formData.time ? (isUnlimitedSlot ? false : remainingCount <= 0) : false;
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        
+        if (!isAgreed) {
+          alert("저작권 보호 및 유출 금지 사항에 동의해야 신청할 수 있습니다.");
+          return;
+        }
+
+        setStatus('submitting');
+        setMessage('');
+
+        fetchBookings(); // 제출 직전에 최신 상태 재확인
+
+        if (isFull) {
+          setStatus('error');
+          setMessage('선택하신 시간대는 방금 마감되었습니다. 다른 시간대를 선택해주세요.');
+          return;
+        }
+
+        try {
+          const response = await fetch(GAS_WEB_APP_URL, {
+            method: 'POST',
+            body: JSON.stringify(formData),
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            redirect: 'follow'
+          });
+          const result = await response.json();
           
-          <form onSubmit={handleSubmit} className="p-6 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">학과</label>
-                <select name="department" required value={formData.department} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
-                  <option value="" disabled>학과를 선택하세요</option>
-                  {DEPARTMENTS.map(dept => <option key={dept} value={dept}>{dept}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">학년</label>
-                <select name="grade" required value={formData.grade} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
-                  <option value="" disabled>학년을 선택하세요</option>
-                  {GRADES.map(grade => <option key={grade} value={grade}>{grade}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">반</label>
-                <select name="studentClass" required value={formData.studentClass} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
-                  <option value="" disabled>반을 선택하세요</option>
-                  {CLASSES.map(cls => <option key={cls} value={cls}>{cls}</option>)}
-                </select>
-              </div>
-            </div>
+          if (result.success) {
+            setStatus('success'); // 성공 시 완료 화면으로 전환
+          } else {
+            setStatus('error');
+            setMessage(result.message || '신청 중 오류가 발생했습니다.');
+            fetchBookings(); 
+          }
+        } catch (error) {
+          setStatus('error');
+          setMessage('서버와의 통신에 실패했습니다. (CORS 권한 오류 등)');
+          setFetchError(true);
+        }
+      };
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">이름</label>
-              <input type="text" name="name" required placeholder="홍길동" value={formData.name} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500" />
-            </div>
-
-            <hr className="border-gray-200" />
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
-                  <Calendar className="w-4 h-4 mr-1 text-gray-500" /> 열람 날짜
-                </label>
-                <select name="date" required value={formData.date} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
-                  <option value="" disabled>날짜를 선택하세요</option>
-                  {DATES.map(date => <option key={date} value={date}>{date}</option>)}
-                </select>
+      // --- 성공 화면 렌더링 ---
+      if (status === 'success') {
+        return (
+          <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+            <div className="max-w-md w-full bg-white shadow-xl rounded-2xl p-8 text-center border border-gray-100">
+              <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-6 text-green-600">
+                <CheckCircle className="w-10 h-10" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
-                  <Clock className="w-4 h-4 mr-1 text-gray-500" /> 열람 시간대
-                </label>
-                <select name="time" required value={formData.time} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
-                  <option value="" disabled>시간대를 선택하세요</option>
-                  {getTimesForDate(formData.date).map(time => {
-                    const isUnlimited = formData.date === '4월 20일' && time === '15:30~16:30';
-                    const tempSlotKey = normalizeKey(`${formData.date}|${time}`);
-                    const count = bookingsCount[tempSlotKey] || 0;
-                    const remain = MAX_LIMIT - count;
-                    // 예외 시간대면 무조건 slotFull을 false 처리
-                    const slotFull = !isUnlimited && remain <= 0;
-                    return (
-                      <option key={time} value={time} disabled={formData.date && slotFull}>
-                        {/* 특별한 "제한 없음" 문구 없이 시간만 표기하도록 수정 완료 */}
-                        {time}
-                      </option>
-                    );
-                  })}
-                </select>
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">신청이 완료되었습니다!</h2>
+              <div className="bg-blue-50 rounded-lg p-4 mb-6">
+                <p className="text-blue-800 font-bold text-lg">{formData.date} {formData.time}</p>
               </div>
-            </div>
-
-            {formData.date && formData.time && (
-              <div className={`p-4 rounded-xl flex items-center justify-between border ${isFull ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-100'}`}>
-                <div className="flex items-center">
-                  <Users className={`w-5 h-5 mr-2 flex-shrink-0 ${isFull ? 'text-red-500' : 'text-blue-600'}`} />
-                  <span className={`font-medium text-sm md:text-base ${isFull ? 'text-red-700' : 'text-blue-800'}`}>
-                    {isFull ? '해당 시간대는 신청이 마감되었습니다.' : (
-                      isUnlimitedSlot 
-                        ? <>현재 신청 가능한 시간대입니다.</>
-                        : <>현재 신청 가능 인원: <span className="text-lg font-bold">{remainingCount}</span> / {MAX_LIMIT}명</>
-                    )}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* --- 저작권 동의 체크 영역 --- */}
-            <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 mt-4">
-              <label className="flex items-start cursor-pointer">
-                <div className="flex-shrink-0 mt-1">
-                  <input
-                    type="checkbox"
-                    required
-                    checked={isAgreed}
-                    onChange={(e) => setIsAgreed(e.target.checked)}
-                    className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-                  />
-                </div>
-                <div className="ml-3 text-sm text-gray-700 leading-relaxed">
-                  <span className="font-bold text-red-600 block mb-1">[필수] 저작권 보호 및 유출 금지 동의</span>
-                  학교에서 제공하는 기출문제는 저작권법의 보호를 받는 저작물로, 휴대폰 등을 이용한 사진 촬영, 동영상 녹화, 타이핑 기록 등을 일체 금지하며 온·오프라인에 문제를 게시하거나 타인에게 공유하는 행위를 금지합니다.
-                </div>
-              </label>
-            </div>
-
-            {status === 'error' && !fetchError && (
-              <div className="rounded-lg bg-red-50 p-4 border border-red-200 flex items-start">
-                <AlertCircle className="w-5 h-5 text-red-400 mr-3 mt-0.5" />
-                <p className="text-sm text-red-800 font-medium">{message}</p>
-              </div>
-            )}
-
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={status === 'submitting' || isFull || !formData.date || !formData.time || !isAgreed || fetchError}
-                className={`w-full py-4 rounded-xl shadow-lg font-bold text-white transition-all
-                  ${(status === 'submitting' || isFull || !formData.date || !formData.time || !isAgreed || fetchError) 
-                    ? 'bg-gray-400 cursor-not-allowed shadow-none' 
-                    : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
-                  }`}
+              <p className="text-gray-600 mb-8 font-medium text-lg leading-relaxed">
+                신청 시간에 반드시<br />
+                <span className="text-blue-600 font-extrabold text-xl">본교무실</span>로 찾아와주세요.
+              </p>
+              <button 
+                onClick={() => window.location.reload()} 
+                className="w-full py-4 bg-blue-600 hover:bg-blue-700 transition-colors text-white rounded-lg font-bold shadow-md"
               >
-                {status === 'submitting' ? '신청 처리 중...' : isFull ? '마감되었습니다' : '동의하고 열람 신청하기'}
+                처음으로 돌아가기
               </button>
             </div>
-          </form>
+            {/* 성공 화면 제작자 표시 */}
+            <div className="mt-8 text-sm text-gray-400 font-medium tracking-wide">
+              created by. 쿙쌤
+            </div>
+          </div>
+        );
+      }
+
+      // --- 기본 신청 폼 렌더링 ---
+      return (
+        <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 font-sans flex flex-col items-center">
+          <div className="max-w-2xl w-full mx-auto space-y-6 flex-grow">
+            
+            {/* 헤더 안내문 */}
+            <div className="text-center">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 mb-4">
+                <BookOpen className="w-8 h-8 text-blue-600" />
+              </div>
+              <h2 className="text-3xl font-extrabold text-gray-900">기출문제 열람 신청</h2>
+              <div className="mt-4 text-sm text-gray-600 space-y-3">
+                <p className="text-base">원하시는 날짜와 시간대를 선택하여 신청해 주세요.</p>
+                <div className="inline-block text-left bg-blue-50 border border-blue-100 rounded-xl px-5 py-3 text-gray-700 space-y-1.5 w-full sm:w-auto">
+                  <p><span className="font-bold mr-2">📍 열람 장소 :</span>본교무실</p>
+                  <p><span className="font-bold mr-2">⏳ 입력 기한 :</span>~ 2026. 4. 22 14:00</p>
+                  <p><span className="font-bold mr-2 text-blue-600">🔥 인원 제한 :</span><span className="text-blue-600 font-medium">시간대별 선착순 5명(4월 20일은 15:30~16:30 인원 제한 없음)</span></p>
+                </div>
+              </div>
+            </div>
+
+            {/* Failed to fetch 에러 알림 배너 */}
+            {fetchError && (
+              <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm">
+                <div className="flex items-start">
+                  <AlertCircle className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <h3 className="text-sm font-bold text-red-800">서버 연결 오류 (Failed to fetch)</h3>
+                    <p className="mt-1 text-sm text-red-700">
+                      구글 서버에 접근할 수 없습니다. 스프레드시트 배포 설정에서<br />
+                      접근 권한이 <strong>"모든 사용자(Anyone)"</strong>로 되어 있는지 확인 후 새 버전으로 재배포해주세요.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 폼 카드 */}
+            <div className="bg-white shadow-xl rounded-2xl overflow-hidden border border-gray-100">
+              <div className="bg-blue-600 px-6 py-4 flex items-center">
+                <User className="w-5 h-5 mr-2 text-white" />
+                <h3 className="text-lg font-medium text-white">신청자 정보 입력</h3>
+              </div>
+              
+              <form onSubmit={handleSubmit} className="p-6 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">학과</label>
+                    <select name="department" required value={formData.department} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
+                      <option value="" disabled>학과를 선택하세요</option>
+                      {DEPARTMENTS.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">학년</label>
+                    <select name="grade" required value={formData.grade} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
+                      <option value="" disabled>학년을 선택하세요</option>
+                      {GRADES.map(grade => <option key={grade} value={grade}>{grade}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">반</label>
+                    <select name="studentClass" required value={formData.studentClass} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
+                      <option value="" disabled>반을 선택하세요</option>
+                      {CLASSES.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">이름</label>
+                  <input type="text" name="name" required placeholder="홍길동" value={formData.name} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500" />
+                </div>
+
+                <hr className="border-gray-200" />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                      <Calendar className="w-4 h-4 mr-1 text-gray-500" /> 열람 날짜
+                    </label>
+                    <select name="date" required value={formData.date} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
+                      <option value="" disabled>날짜를 선택하세요</option>
+                      {DATES.map(date => <option key={date} value={date}>{date}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                      <Clock className="w-4 h-4 mr-1 text-gray-500" /> 열람 시간대
+                    </label>
+                    <select name="time" required value={formData.time} onChange={handleChange} className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 bg-white">
+                      <option value="" disabled>시간대를 선택하세요</option>
+                      {getTimesForDate(formData.date).map(time => {
+                        const isUnlimited = formData.date === '4월 20일' && time === '15:30~16:30';
+                        const tempSlotKey = normalizeKey(`${formData.date}|${time}`);
+                        const count = bookingsCount[tempSlotKey] || 0;
+                        const remain = MAX_LIMIT - count;
+                        // 예외 시간대면 무조건 slotFull을 false 처리
+                        const slotFull = !isUnlimited && remain <= 0;
+                        return (
+                          <option key={time} value={time} disabled={formData.date && slotFull}>
+                            {time}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                </div>
+
+                {formData.date && formData.time && (
+                  <div className={`p-4 rounded-xl flex items-center justify-between border ${isFull ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-100'}`}>
+                    <div className="flex items-center">
+                      <Users className={`w-5 h-5 mr-2 flex-shrink-0 ${isFull ? 'text-red-500' : 'text-blue-600'}`} />
+                      <span className={`font-medium text-sm md:text-base ${isFull ? 'text-red-700' : 'text-blue-800'}`}>
+                        {isFull ? '해당 시간대는 신청이 마감되었습니다.' : (
+                          isUnlimitedSlot 
+                            ? <>현재 신청 가능한 시간대입니다.</>
+                            : <>현재 신청 가능 인원: <span className="text-lg font-bold">{remainingCount}</span> / {MAX_LIMIT}명</>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* --- 저작권 동의 체크 영역 --- */}
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 mt-4">
+                  <label className="flex items-start cursor-pointer">
+                    <div className="flex-shrink-0 mt-1">
+                      <input
+                        type="checkbox"
+                        required
+                        checked={isAgreed}
+                        onChange={(e) => setIsAgreed(e.target.checked)}
+                        className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                      />
+                    </div>
+                    <div className="ml-3 text-sm text-gray-700 leading-relaxed">
+                      <span className="font-bold text-red-600 block mb-1">[필수] 저작권 보호 및 유출 금지 동의</span>
+                      학교에서 제공하는 기출문제는 저작권법의 보호를 받는 저작물로, 휴대폰 등을 이용한 사진 촬영, 동영상 녹화, 타이핑 기록 등을 일체 금지하며 온·오프라인에 문제를 게시하거나 타인에게 공유하는 행위를 금지합니다.
+                    </div>
+                  </label>
+                </div>
+
+                {status === 'error' && !fetchError && (
+                  <div className="rounded-lg bg-red-50 p-4 border border-red-200 flex items-start">
+                    <AlertCircle className="w-5 h-5 text-red-400 mr-3 mt-0.5" />
+                    <p className="text-sm text-red-800 font-medium">{message}</p>
+                  </div>
+                )}
+
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={status === 'submitting' || isFull || !formData.date || !formData.time || !isAgreed || fetchError}
+                    className={`w-full py-4 rounded-xl shadow-lg font-bold text-white transition-all
+                      ${(status === 'submitting' || isFull || !formData.date || !formData.time || !isAgreed || fetchError) 
+                        ? 'bg-gray-400 cursor-not-allowed shadow-none' 
+                        : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
+                      }`}
+                  >
+                    {status === 'submitting' ? '신청 처리 중...' : isFull ? '마감되었습니다' : '동의하고 열람 신청하기'}
+                  </button>
+                </div>
+              </form>
+            </div>
+            
+            {/* 만든 이 표시 */}
+            <div className="text-center pt-2 pb-8 text-sm text-gray-400 font-medium tracking-wide">
+              created by. 쿙쌤
+            </div>
+          </div>
         </div>
-        
-        {/* 만든 이 표시 */}
-        <div className="text-center pt-2 pb-8 text-sm text-gray-400 font-medium tracking-wide">
-          created by. 쿙쌤
-        </div>
-      </div>
-    </div>
-  );
-}
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
